@@ -1,0 +1,144 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: istio-test-otus
+  labels:
+    istio-injection: enabled
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: istio-test-otus
+  name: simple-echo-app
+  labels:
+    app: simple-echo-app
+spec:
+  selector:
+    app: simple-echo-app
+
+  type: LoadBalancer
+  ports:
+    - name: http
+      protocol: TCP
+      targetPort: 8080
+      port: 8000
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: istio-test-otus
+  name: simple-echo-app
+  labels:
+    app: simple-echo-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: simple-echo-app
+      version: main
+
+  template:
+    metadata:
+      labels:
+        app: simple-echo-app
+        version: main
+
+    spec:
+      containers:
+        - image: "redestroyder/simple-echo-app:1.0.0"
+          name: "simple-echo-app"
+          ports:
+              - name: http
+                containerPort: 8080
+                protocol: TCP
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: istio-test-otus
+  name: simple-echo-app-canary
+  labels:
+    app: simple-echo-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: simple-echo-app
+      version: canary
+
+  template:
+    metadata:
+      labels:
+        app: simple-echo-app
+        version: canary
+
+    spec:
+      containers:
+        - image: "redestroyder/simple-echo-app:2.0.0"
+          name: "simple-echo-app"
+          ports:
+              - name: http
+                containerPort: 8080
+                protocol: TCP
+---
+apiVersion: networking.istio.io/v1beta1
+kind: Gateway
+metadata:
+    namespace: istio-test-otus
+    name: simple-echo-app-gateway
+spec:
+    selector:
+        app: simple-echo-app
+        app: istio-ingress
+    servers:
+    - port:
+        targetPort: 8080
+        number: 8000
+        name: http
+        protocol: HTTP
+      hosts:
+      - "arch.homework"
+
+---
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+    namespace: istio-test-otus
+    name: simple-echo-app-destination
+spec:
+    host: simple-echo-app.istio-test-otus.svc.cluster.local
+    trafficPolicy:
+        loadBalancer:
+            simple: ROUND_ROBIN
+    subsets:
+    - name: v1
+      labels:
+        version: main
+    - name: v2
+      labels:
+        version: canary
+---
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+    namespace: istio-test-otus
+    name: simple-echo-app-virt-svc
+spec:  
+    hosts:
+    - simple-echo-app.istio-test-otus.svc.cluster.local 
+    - arch.homework
+    gateways:
+    - simple-echo-app-gateway
+    http:
+    - route:
+      - destination:
+          # host: arch.homework
+          host: simple-echo-app.istio-test-otus.svc.cluster.local
+          subset: v1
+        weight: 50
+      - destination:
+          # host: arch.homework
+          host: simple-echo-app.istio-test-otus.svc.cluster.local
+          subset: v2
+        weight: 50
